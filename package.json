@@ -1,0 +1,35 @@
+{
+    "name": "vwvcu",
+    "version": "1.0.0",
+    "description": "Updates view counts on the Vocaloid Wiki",
+    "keywords": [
+        "wikia",
+        "FANDOM",
+        "vocaloid"
+    ],
+    "homepage": "https://vocaloid.wikia.com",
+    "license": "GPL-3.0+",
+    "author": {
+        "name": "KockaAdmiralac",
+        "email": "1405223@gmail.com",
+        "url": "https://github.com/KockaAdmiralac"
+    },
+    "contributors": [],
+    "main": "main.js",
+    "scripts": {
+        "start": "node main.js"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/KockaAdmiralac/VWVCU.git"
+    },
+    "dependencies": {
+        "eslint": ">=5.7.0",
+        "googleapis": ">=34.0.0",
+        "google-auth-library": ">=2.0.0",
+        "node-html-parser": ">=1.1.10",
+        "request": ">=2.88.0",
+        "request-promise-native": ">=1.0.5",
+        "xml-parser": ">=1.2.1"
+    }
+}
