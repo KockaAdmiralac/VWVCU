@@ -28,7 +28,8 @@ const USER_AGENT = 'Vocaloid Wiki View Count Updater',
       LINKS_REGEX = /\|\s*links\s*=\s*([^\n]+)\n/,
       VIEW_REGEX = /\{\{v\|(\w{2})\|([^}]+)\}\}/g,
       LINK_REGEX = /\{\{l\|(\w{2})\|([^}|]+)(?:\|([^}]+))?\}\}/g,
-      SOUNDCLOUD_REGEX = /var c=(\[\{.*\}\]),o=Date.now\(\),i=\[/;
+      SOUNDCLOUD_REGEX = /var c=(\[\{.*\}\]),o=Date.now\(\),i=\[/,
+      PIAPRO_REGEX = /<span>閲覧数：<\/span>([\d,]+)/;
 
 /**
  * Main class of the project
@@ -187,37 +188,62 @@ class VWVCU {
      * @private
      */
     _extractContent(content) {
-        const res = VIEWS_REGEX.exec(content),
-              res2 = LINKS_REGEX.exec(content);
-        if (!res || !res2) {
+        if (!VIEWS_REGEX.exec(content) || !LINKS_REGEX.exec(content)) {
             return [[], {}];
         }
         const views = {},
               matches = [];
         let res3 = null, res4 = null;
         do {
-            res3 = VIEW_REGEX.exec(res[1]);
+            res3 = VIEW_REGEX.exec(content);
             if (res3 && this[`_${res3[1]}`]) {
                 const provider = res3[1];
                 views[provider] = views[provider] || [];
-                views[provider].push(Number(res3[2].replace(/,|\./g, '')));
+                views[provider].push(Number(res3[2].replace(/,|\.|\s/g, '')));
             }
         } while (res3);
         VIEW_REGEX.lastIndex = 0;
         do {
-            res4 = LINK_REGEX.exec(res2[1]);
-            if (res4 && this[`_${res4[1]}`]) {
+            res4 = LINK_REGEX.exec(content);
+            if (res4 && this[`_${res4[1]}`] && views[res4[1]]) {
                 matches.push({
                     link: res4[2],
                     provider: res4[1],
                     views: views[res4[1]].shift()
                 });
+            } else if (res4 && this[`_${res4[1]}`] && !views[res4[1]]) {
+                this._logger.warn('No view count found for', res4[1]);
             }
         } while (res4);
         LINK_REGEX.lastIndex = 0;
         return [matches.map(m => new Promise(function(resolve, rej) {
             this[`_${m.provider}`](m.link, resolve, rej);
         }.bind(this))), matches];
+    }
+    /**
+     * Fetches bilibili video view count
+     * @param {String} id Video ID
+     * @param {Function} resolve Promise resolving function
+     * @param {Function} reject Promise rejection function
+     */
+    _bb(id, resolve, reject) {
+        http({
+            headers: {
+                'User-Agent': USER_AGENT
+            },
+            json: true,
+            method: 'GET',
+            qs: {
+                aid: id
+            },
+            uri: 'https://api.bilibili.com/x/web-interface/archive/stat'
+        }).then(function(d) {
+            if (d && d.data && d.data.view) {
+                resolve(d.data.view);
+            } else {
+                reject(`No bilibili view count: ${JSON.stringify(d)}`);
+            }
+        }).catch(reject);
     }
     /**
      * Fetches Niconico video view count
@@ -243,6 +269,28 @@ class VWVCU {
                 return;
             }
             resolve(Number(counter.content));
+        }).catch(reject);
+    }
+    /**
+     * Fetches view count of a Piapro video
+     * @param {String} id Video ID
+     * @param {Function} resolve Promise resolving function
+     * @param {Function} reject Promise rejection function
+     */
+    _pp(id, resolve, reject) {
+        http({
+            headers: {
+                'User-Agent': USER_AGENT_SCRAPER
+            },
+            method: 'GET',
+            uri: `https://piapro.jp/t/${id}`
+        }).then(function(d) {
+            const res = PIAPRO_REGEX.exec(d);
+            if (res) {
+                resolve(Number(res[1].replace(/,/g, '')));
+            } else {
+                reject('[piapro] Unable to find view count');
+            }
         }).catch(reject);
     }
     /**
@@ -344,9 +392,10 @@ class VWVCU {
     _generateCallback(title, content, token, matches) {
         return function(results) {
             let newcontent = content;
-            if (!results.some(function(count, i) {
-                return count - matches[i].views >= 100;
-            })) {
+            if (!results.some(
+                (count, i) => this._roundV(matches[i].views) !==
+                              this._roundV(count)
+            )) {
                 this._logger.debug(
                     title, ': Not enough view count difference, returning.'
                 );
@@ -373,6 +422,31 @@ class VWVCU {
         }.bind(this);
     }
     /**
+     * Replicates {{v}} template's number rounding
+     * @param {Number} num Number of views
+     * @returns {String} Rounded number of views
+     */
+    _roundV(num) {
+        const len = String(num).length;
+        switch (len) {
+            case 1:
+                return String(num);
+            case 2:
+                return String(Math.round(num / 10) * 10);
+            case 3:
+                return `${String(num).slice(0, -1)}0`;
+            case 4:
+            case 5:
+            case 6:
+                return `${String(num).slice(0, -2)}00`;
+            case 7:
+            case 8:
+                return `${String(num).slice(0, -3)}000`;
+            default:
+                return 'unsupported';
+        }
+    }
+    /**
      * Generates a callback function for when video view count fetching fails
      * @param {String} title Page title
      * @returns {Function} Callback function
@@ -380,7 +454,6 @@ class VWVCU {
      */
     _generateErrorCallback(title) {
         return function(...errors) {
-            console.log(this._logger, this._logger.error);
             this._logger.error(
                 'An error occurred while fetching view counts for', title,
                 errors
@@ -399,6 +472,7 @@ class VWVCU {
         if (this._noEdit) {
             this._logger.debug('Content to post:');
             this._logger.debug(content);
+            this._next();
             return;
         }
         util.apiQuery('edit', 'POST', {
