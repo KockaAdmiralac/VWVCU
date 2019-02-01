@@ -4,10 +4,10 @@
     "description": "Updates view counts on the Vocaloid Wiki",
     "keywords": [
         "wikia",
-        "FANDOM",
+        "Fandom",
         "vocaloid"
     ],
-    "homepage": "https://vocaloid.wikia.com",
+    "homepage": "https://vocaloid.fandom.com",
     "license": "GPL-3.0+",
     "author": {
         "name": "KockaAdmiralac",

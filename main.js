@@ -6,7 +6,7 @@
 'use strict';
 
 /**
- * Importing modules
+ * Importing modules.
  */
 const http = require('request-promise-native'),
       xmlparser = require('xml-parser'),
@@ -19,7 +19,7 @@ const http = require('request-promise-native'),
       pkg = require('./package.json');
 
 /**
- * Constants
+ * Constants.
  */
 const USER_AGENT = 'Vocaloid Wiki View Count Updater',
       // eslint-disable-next-line max-len
@@ -32,11 +32,11 @@ const USER_AGENT = 'Vocaloid Wiki View Count Updater',
       PIAPRO_REGEX = /<span>閲覧数：<\/span>([\d,]+)/;
 
 /**
- * Main class of the project
+ * Main class of the project.
  */
 class VWVCU {
     /**
-     * Class constructor
+     * Class constructor.
      */
     constructor() {
         this._auth = new Auth();
@@ -55,7 +55,7 @@ class VWVCU {
         this._logger.info(`${pkg.name} v${pkg.version}: Initializing`);
     }
     /**
-     * Runs the Vocaloid Wiki View Count Updater
+     * Runs the Vocaloid Wiki View Count Updater.
      */
     run() {
         this._logger.info('Authenticating with services...');
@@ -64,11 +64,12 @@ class VWVCU {
             .catch(this._loginFailed.bind(this));
     }
     /**
-     * Client is logged in
+     * Client is logged in.
      * @param {Array<Array>} tokens Promise responses
      * @private
      */
     _loggedIn(tokens) {
+        this._auth.clean();
         this._tokens = {};
         tokens.forEach(function([provider, result]) {
             this._tokens[provider] = result;
@@ -80,15 +81,16 @@ class VWVCU {
             .catch(this._listFailed.bind(this));
     }
     /**
-     * Failure to authenticate with services
+     * Failure to authenticate with services.
      * @param {Array} errors Login errors
      * @private
      */
     _loginFailed(errors) {
         this._logger.error('Authentication failed:', ...errors);
+        this._auth.clean();
     }
     /**
-     * List of pages has been obtained
+     * List of pages has been obtained.
      * @param {Array<String>} pages List of pages to run through
      * @private
      */
@@ -98,7 +100,7 @@ class VWVCU {
         this._next();
     }
     /**
-     * Pages failed to list
+     * Pages failed to list.
      * @param {Error} e Error that occurred
      * @private
      */
@@ -106,7 +108,7 @@ class VWVCU {
         this._logger.error('Failed to obtain a list of pages', e);
     }
     /**
-     * Processes the next page in the queue
+     * Processes the next page in the queue.
      * @private
      */
     _next() {
@@ -121,7 +123,7 @@ class VWVCU {
         }
     }
     /**
-     * Gets page contents and other important information
+     * Gets page contents and other important information.
      * @param {String} page Page to fetch
      * @returns {Promise} Promise to listen on for response
      * @private
@@ -138,7 +140,7 @@ class VWVCU {
     }
     /**
      * Processes page contents to extract important information
-     * and passes it on to services
+     * and passes it on to services.
      * @param {Object} data MediaWiki API response
      * @private
      */
@@ -172,7 +174,7 @@ class VWVCU {
         }
     }
     /**
-     * Callback after failing to obtain page contents
+     * Callback after failing to obtain page contents.
      * @param {Error} e Error that occurred while fetching page contents
      * @private
      */
@@ -181,7 +183,7 @@ class VWVCU {
         this._next();
     }
     /**
-     * Gets requests from video providers and view count based on page content
+     * Gets requests from video providers and view count based on page content.
      * @param {String} content Page content
      * @returns {Array} Promises to listen on for provider response and
      *                  current view count
@@ -221,7 +223,7 @@ class VWVCU {
         }.bind(this))), matches];
     }
     /**
-     * Fetches bilibili video view count
+     * Fetches bilibili video view count.
      * @param {String} id Video ID
      * @param {Function} resolve Promise resolving function
      * @param {Function} reject Promise rejection function
@@ -246,7 +248,7 @@ class VWVCU {
         }).catch(reject);
     }
     /**
-     * Fetches Niconico video view count
+     * Fetches Niconico video view count.
      * @param {String} id Video ID
      * @param {Function} resolve Promise resolving function
      * @param {Function} reject Promise rejection function
@@ -272,7 +274,7 @@ class VWVCU {
         }).catch(reject);
     }
     /**
-     * Fetches view count of a Piapro video
+     * Fetches view count of a Piapro video.
      * @param {String} id Video ID
      * @param {Function} resolve Promise resolving function
      * @param {Function} reject Promise rejection function
@@ -294,7 +296,7 @@ class VWVCU {
         }).catch(reject);
     }
     /**
-     * Fetches view count of a SoundCloud track
+     * Fetches view count of a SoundCloud track.
      * @param {String} id SoundCloud track ID
      * @param {Function} resolve Promise resolving function
      * @param {Function} reject Promise rejection function
@@ -329,7 +331,7 @@ class VWVCU {
         });
     }
     /**
-     * Fetches Vimeo video view count
+     * Fetches Vimeo video view count.
      * @param {String} id Video ID
      * @param {Function} resolve Promise resolving function
      * @param {Function} reject Promise rejection function
@@ -349,7 +351,7 @@ class VWVCU {
         }).catch(reject);
     }
     /**
-     * Fetches YouTube video view count
+     * Fetches YouTube video view count.
      * @param {String} id Video ID
      * @param {Function} resolve Promise resolving function
      * @param {Function} reject Promise rejection function
@@ -380,7 +382,7 @@ class VWVCU {
         });
     }
     /**
-     * Generates a callback function for when video fetching promises
+     * Generates a callback function for when video fetching promises.
      * are resolved
      * @param {String} title Page title
      * @param {String} content Page content
@@ -422,7 +424,7 @@ class VWVCU {
         }.bind(this);
     }
     /**
-     * Replicates {{v}} template's number rounding
+     * Replicates {{v}} template's number rounding.
      * @param {Number} num Number of views
      * @returns {String} Rounded number of views
      */
@@ -447,7 +449,7 @@ class VWVCU {
         }
     }
     /**
-     * Generates a callback function for when video view count fetching fails
+     * Generates a callback function for when video view count fetching fails.
      * @param {String} title Page title
      * @returns {Function} Callback function
      * @private
@@ -462,7 +464,7 @@ class VWVCU {
         }.bind(this);
     }
     /**
-     * Edits a page with specified title and content
+     * Edits a page with specified title and content.
      * @param {String} title Page title
      * @param {String} content Page content
      * @param {String} token Token to use in edit
@@ -486,7 +488,7 @@ class VWVCU {
         .catch(this._generateEditErrorCallback(title));
     }
     /**
-     * Generates edit callback
+     * Generates edit callback.
      * @param {String} title Page title
      * @returns {Function} Edit callback function
      */
@@ -504,7 +506,7 @@ class VWVCU {
         }.bind(this);
     }
     /**
-     * Generated edit callback when the edit failed
+     * Generated edit callback when the edit failed.
      * @param {String} title Page title
      * @returns {Function} Edit error callback function
      */

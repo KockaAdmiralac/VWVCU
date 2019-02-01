@@ -1,22 +1,22 @@
 /**
  * list.js
  *
- * Generates a list of pages to update
+ * Generates a list of pages to update.
  */
 'use strict';
 
 /**
- * Importing modules
+ * Importing modules.
  */
 const util = require('./util.js');
 
 /**
- * Lists pages to update
+ * Lists pages to update.
  */
 class Lister {
     /**
-     * Starts listing of pages
-     * @param {http.CookieJar} jar Cookie jar for FANDOM authentication
+     * Starts listing of pages.
+     * @param {http.CookieJar} jar Cookie jar for Fandom authentication
      * @returns {Promise} Promise to listen on for the list
      */
     run() {
@@ -28,7 +28,7 @@ class Lister {
         }.bind(this));
     }
     /**
-     * Lists pages from a specified point
+     * Lists pages from a specified point.
      * @param {String} eicontinue Value to pass to eicontinue parameter
      * @private
      */
@@ -44,7 +44,7 @@ class Lister {
         .catch(this._reject);
     }
     /**
-     * Callback after listing pages
+     * Callback after listing pages.
      * @param {Object} data MediaWiki API response
      * @private
      */

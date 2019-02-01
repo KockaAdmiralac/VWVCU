@@ -1,21 +1,22 @@
 /**
  * auth.js
  *
- * Provides authentication with external services
+ * Provides authentication with external services.
  */
 'use strict';
 
 /**
- * Importing modules
+ * Importing modules.
  */
 const fs = require('fs'),
       readline = require('readline'),
       {google} = require('googleapis'),
       http = require('request-promise-native'),
+      {Writable} = require('stream'),
       Logger = require('./log.js');
 
 /**
- * Constants
+ * Constants.
  */
 const USER_AGENT = 'Vocaloid Wiki View Count Updater',
       PROVIDERS = [
@@ -26,19 +27,43 @@ const USER_AGENT = 'Vocaloid Wiki View Count Updater',
       {OAuth2} = google.auth;
 
 /**
- * Handles authentication with video providers
+ * Handles authentication with video providers.
  */
 class Auth {
     /**
-     * Begins authentication with services
+     * Begins authentication with services.
      * @returns {Promise} Promise to listen on for response
      */
     run() {
         this._promises = {};
+        this._rl = readline.createInterface({
+            input: process.stdin,
+            output: new Writable({
+                write: this._writable.bind(this)
+            }),
+            terminal: true
+        });
+        this._logger = new Logger({
+            file: true,
+            name: 'auth',
+            stdout: true
+        });
         return Promise.all(PROVIDERS.map(this._mapProvider, this));
     }
     /**
-     * Maps a provider to a Promise that resolves when authenticated
+     * Overriden output stream function.
+     * @param {*} chunk Input argument 1
+     * @param {*} encoding Input argument 2
+     * @param {Function} callback Callback after writing
+     */
+    _writable(chunk, encoding, callback) {
+        if (!this._inputtingPassword) {
+            process.stdout.write(chunk, encoding);
+        }
+        callback();
+    }
+    /**
+     * Maps a provider to a Promise that resolves when authenticated.
      * @param {String} provider Provider to map
      * @returns {Promise} Promise to listen on for authentication
      * @private
@@ -54,7 +79,7 @@ class Auth {
         }.bind(this));
     }
     /**
-     * Resolves a Promise for a specified provider
+     * Resolves a Promise for a specified provider.
      * @param {String} provider Provider whose promise to resolve
      * @param {*} result Result to resolve the promise with
      */
@@ -62,7 +87,7 @@ class Auth {
         this._promises[provider].resolve([provider, result]);
     }
     /**
-     * Rejects a Promise for a specified provider
+     * Rejects a Promise for a specified provider.
      * @param {String} provider Provider whose promise to reject
      * @param {Array} errors List of errors that occurred
      */
@@ -70,7 +95,7 @@ class Auth {
         this._promises[provider].reject(errors);
     }
     /**
-     * Retrieves a new token for Google services
+     * Retrieves a new token for Google services.
      * @private
      */
     _getGoogleToken() {
@@ -81,31 +106,21 @@ class Auth {
                 'https://www.googleapis.com/auth/youtube.readonly'
             ]
         });
-        this._rl = readline.createInterface({
-            input: process.stdin,
-            output: process.stdout
-        });
-        this._logger = new Logger({
-            file: true,
-            name: 'auth',
-            stdout: true
-        });
         this._logger.info('1. Authorize this app by visiting this url:', url);
         this._logger.info('2. Enter the token you got here:');
         this._rl.setPrompt('');
-        this._rl.once('line', this._onLine.bind(this));
+        this._rl.once('line', this._onGoogleToken.bind(this));
     }
     /**
-     * Callback after writing a line to the console
+     * Callback after writing a line to the console.
      * @param {String} line Line that was written
      * @private
      */
-    _onLine(line) {
-        this._rl.close();
+    _onGoogleToken(line) {
         this._googleClient.getToken(line, this._onToken.bind(this));
     }
     /**
-     * Callback after obtaining a Google token
+     * Callback after obtaining a Google token.
      * @param {Error} err Errors that occurred while obtaining the token
      * @param {String} token Obtained Google token
      */
@@ -127,7 +142,7 @@ class Auth {
         this._resolve('google', this._googleClient);
     }
     /**
-     * Callback after storing Google token
+     * Callback after storing Google token.
      * @param {Error} err Errors that occurred while writing to file
      */
     _storeGoogleTokenCallback(err) {
@@ -136,7 +151,7 @@ class Auth {
         }
     }
     /**
-     * Handles Google authentication
+     * Handles Google authentication.
      * @param {Object} credentials Saved Google credentials
      * @private
      */
@@ -155,7 +170,7 @@ class Auth {
         }
     }
     /**
-     * Handles Vimeo authentication
+     * Handles Vimeo authentication.
      * @param {Object} credentials Saved Google credentials
      * @private
      * @todo Make this fetch a token instead of just reading it
@@ -164,12 +179,40 @@ class Auth {
         this._resolve('vimeo', credentials);
     }
     /**
-     * Handles FANDOM authentication
-     * @param {Object} credentials FANDOM account credentials
+     * Handles Fandom authentication.
+     * @param {Object} credentials Fandom account credentials
      * @private
      */
     _wikia(credentials) {
         this._wikiaJar = http.jar();
+        if (credentials.password) {
+            this._wikiaLogin(credentials);
+        } else {
+            this._wikiaName = credentials.username;
+            this._logger.info('Enter your Fandom account credentials:');
+            this._rl.setPrompt('');
+            this._inputtingPassword = true;
+            this._rl.once('line', this._onWikiaPassword.bind(this));
+        }
+    }
+    /**
+     * Callback after obtaining the user's Fandom password.
+     * @param {String} line User's Fandom password
+     * @private
+     */
+    _onWikiaPassword(line) {
+        this._inputtingPassword = false;
+        this._wikiaLogin({
+            password: line,
+            username: this._wikiaName
+        });
+    }
+    /**
+     * Logs in to Fandom.
+     * @param {Object} credentials Fandom account credentials
+     * @private
+     */
+    _wikiaLogin(credentials) {
         http({
             form: credentials,
             headers: {
@@ -177,24 +220,34 @@ class Auth {
             },
             jar: this._wikiaJar,
             method: 'POST',
-            uri: 'https://services.wikia.com/auth/token'
+            uri: 'https://services.fandom.com/auth/token'
         }).then(this._wikiaSuccess.bind(this))
         .catch(this._wikiaFail.bind(this));
     }
     /**
-     * Callback after authentication with FANDOM succeeded
+     * Callback after authentication with Fandom succeeded.
      * @private
      */
     _wikiaSuccess() {
         this._resolve('wikia', this._wikiaJar);
     }
     /**
-     * Callback after authentication with FANDOM failed
+     * Callback after authentication with Fandom failed.
      * @param {Error} e Error that occurred
      * @private
      */
     _wikiaFail(e) {
-        this._reject('wikia', e);
+        if (e.statusCode === 401) {
+            this._reject('wikia', 'Invalid Fandom credentials!');
+        } else {
+            this._reject('wikia', e);
+        }
+    }
+    /**
+     * Cleans up after authentication succeeded.
+     */
+    clean() {
+        this._rl.close();
     }
 }
 

@@ -1,12 +1,12 @@
 /**
  * util.js
  *
- * Utility methods used within VWVCU
+ * Utility methods used within VWVCU.
  */
 'use strict';
 
 /**
- * Importing modules
+ * Importing modules.
  */
 const http = require('request-promise-native');
 
@@ -16,19 +16,19 @@ const http = require('request-promise-native');
 const USER_AGENT = 'Vocaloid Wiki View Count Updater';
 
 /**
- * Utility class
+ * Utility class.
  */
 class Util {
     /**
-     * Sets the cookie jar for FANDOM API queries
-     * @param {http.CookieJar} jar FANDOM cookie jar
+     * Sets the cookie jar for Fandom API queries.
+     * @param {http.CookieJar} jar Fandom cookie jar
      * @static
      */
     static setJar(jar) {
         this._jar = jar;
     }
     /**
-     * Queries the MediaWiki API
+     * Queries the MediaWiki API.
      * @param {String} action API action to execute
      * @param {String} method HTTP method to use
      * @param {Object} params API request parameters
@@ -43,7 +43,7 @@ class Util {
             jar: this._jar,
             json: true,
             method,
-            uri: 'https://vocaloid.wikia.com/api.php',
+            uri: 'https://vocaloid.fandom.com/api.php',
             [method === 'POST' ? 'form' : 'qs']: Object.assign({
                 action,
                 cb: Date.now(),
@@ -52,7 +52,7 @@ class Util {
         });
     }
     /**
-     * Adds commas into a number, separating the groups of three digits
+     * Adds commas into a number, separating the groups of three digits.
      * @param {Number} num Number to commafy
      * @returns {String} Number with commas
      * @static
