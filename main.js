@@ -16,7 +16,8 @@ const http = require('request-promise-native'),
       Lister = require('./include/list.js'),
       Logger = require('./include/log.js'),
       util = require('./include/util.js'),
-      pkg = require('./package.json');
+      pkg = require('./package.json'),
+      {username} = require('./auth/wikia.json');
 
 /**
  * Constants.
@@ -480,7 +481,7 @@ class VWVCU {
         util.apiQuery('edit', 'POST', {
             bot: true,
             minor: true,
-            summary: 'Updating view count ([[User:KockaBot|automatic]])',
+            summary: `Updating view count ([[User:${username}|automatic]])`,
             text: content,
             title,
             token
