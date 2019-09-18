@@ -24,12 +24,12 @@ const http = require('request-promise-native'),
  */
 const USER_AGENT = 'Vocaloid Wiki View Count Updater',
       // eslint-disable-next-line max-len
-      USER_AGENT_SCRAPER = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36',
+      USER_AGENT_SCRAPER = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.17 Safari/537.36',
       VIEWS_REGEX = /\|\s*views\s*=\s*([^\n]+)\n/,
       LINKS_REGEX = /\|\s*links\s*=\s*([^\n]+)\n/,
       VIEW_REGEX = /\{\{v\|(\w{2})\|([^}]+)\}\}/g,
       LINK_REGEX = /\{\{l\|(\w{2})\|([^}|]+)(?:\|([^}]+))?\}\}/g,
-      SOUNDCLOUD_REGEX = /var c=(\[\{.*\}\]),o=Date.now\(\),i=\[/,
+      SOUNDCLOUD_REGEX = /var c=(\[\{.*\}\]),r=Date.now\(\),i=\[/,
       PIAPRO_REGEX = /<span>閲覧数：<\/span>([\d,]+)/;
 
 /**
