@@ -312,16 +312,12 @@ class VWVCU {
         }).then(function(d) {
             const parsed = htmlparser.parse(d, {script: true}),
                   scripts = parsed.querySelectorAll('script'),
-                  res = SOUNDCLOUD_REGEX
-                      .exec(scripts[scripts.length - 1].innerHTML);
-            if (res) {
-                try {
-                    resolve(JSON.parse(res[1])[5].data[0].playback_count);
-                } catch (e) {
-                    reject(`SoundCloud JSON parsing error: ${e.toString()}`);
-                }
-            } else {
-                reject('Failed to extract data from SoundCloud\'s JavaScript');
+                  content = scripts[scripts.length - 1].innerHTML,
+                  json = content.slice(content.indexOf('[{'), content.lastIndexOf('}]') + 2);
+            try {
+                resolve(JSON.parse(json)[5].data[0].playback_count);
+            } catch (e) {
+                reject(`SoundCloud JSON parsing error: ${e.toString()}`);
             }
         }).catch(function(e) {
             if (e && e.statusCode && e.statusCode === 404) {
