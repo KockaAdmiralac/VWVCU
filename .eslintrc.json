@@ -6,6 +6,9 @@
     "globals": {
         "main": false
     },
+    "parserOptions": {
+        "ecmaVersion": 2020
+    },
     "rules": {
         "for-direction": "warn",
         "getter-return": "error",

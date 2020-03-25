@@ -29,13 +29,14 @@ class Util {
     }
     /**
      * Queries the MediaWiki API.
+     * @param {string} domain Fandom wiki domain to query
      * @param {String} action API action to execute
      * @param {String} method HTTP method to use
      * @param {Object} params API request parameters
      * @returns {Promise} Promise to listen on for response
      * @static
      */
-    static apiQuery(action, method, params) {
+    static apiQuery(domain, action, method, params) {
         return http({
             headers: {
                 'User-Agent': USER_AGENT
@@ -43,7 +44,7 @@ class Util {
             jar: this._jar,
             json: true,
             method,
-            uri: 'https://vocaloid.fandom.com/api.php',
+            uri: `https://${domain}/api.php`,
             [method === 'POST' ? 'form' : 'qs']: Object.assign({
                 action,
                 cb: Date.now(),

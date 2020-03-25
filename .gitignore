@@ -1,3 +1,4 @@
 auth/*.json
+list.txt
 logs/*.log
 node_modules

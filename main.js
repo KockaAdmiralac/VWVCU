@@ -8,7 +8,8 @@
 /**
  * Importing modules.
  */
-const http = require('request-promise-native'),
+const fs = require('fs').promises,
+      http = require('request-promise-native'),
       xmlparser = require('xml-parser'),
       htmlparser = require('node-html-parser'),
       {google} = require('googleapis'),
@@ -29,7 +30,6 @@ const USER_AGENT = 'Vocaloid Wiki View Count Updater',
       LINKS_REGEX = /\|\s*links\s*=\s*([^\n]+)\n/,
       VIEW_REGEX = /\{\{v\|(\w{2})\|([^}]+)\}\}/g,
       LINK_REGEX = /\{\{l\|(\w{2})\|([^}|]+)(?:\|([^}]+))?\}\}/g,
-      SOUNDCLOUD_REGEX = /var c=(\[\{.*\}\]),r=Date.now\(\),i=\[/,
       PIAPRO_REGEX = /<span>閲覧数：<\/span>([\d,]+)/;
 
 /**
@@ -40,8 +40,13 @@ class VWVCU {
      * Class constructor.
      */
     constructor() {
+        const domain = process.argv.find(arg => arg.startsWith('--domain='));
+        this._domain = domain ? domain.substring(9) : 'vocaloid.fandom.com';
         this._auth = new Auth();
-        this._lister = new Lister();
+        this._lister = new Lister({
+            domain: this._domain,
+            file: process.argv.includes('--list')
+        });
         Logger.setup({
             dir: 'logs',
             level: 'debug'
@@ -58,11 +63,15 @@ class VWVCU {
     /**
      * Runs the Vocaloid Wiki View Count Updater.
      */
-    run() {
+    async run() {
         this._logger.info('Authenticating with services...');
-        this._auth.run()
-            .then(this._loggedIn.bind(this))
-            .catch(this._loginFailed.bind(this));
+        try {
+            this._loggedIn(await this._auth.run());
+        } catch (errors) {
+            console.log(errors);
+            this._logger.error('Authentication failed:', ...errors);
+            this._auth.clean();
+        }
     }
     /**
      * Client is logged in.
@@ -80,15 +89,6 @@ class VWVCU {
         this._lister.run()
             .then(this._onList.bind(this))
             .catch(this._listFailed.bind(this));
-    }
-    /**
-     * Failure to authenticate with services.
-     * @param {Array} errors Login errors
-     * @private
-     */
-    _loginFailed(errors) {
-        this._logger.error('Authentication failed:', ...errors);
-        this._auth.clean();
     }
     /**
      * List of pages has been obtained.
@@ -130,7 +130,7 @@ class VWVCU {
      * @private
      */
     _getPage(page) {
-        return util.apiQuery('query', 'GET', {
+        return util.apiQuery(this._domain, 'query', 'GET', {
             indexpageids: 1,
             intoken: 'edit',
             prop: 'revisions|info',
@@ -168,7 +168,7 @@ class VWVCU {
         if (promises.length) {
             Promise.all(promises)
                 .then(this._generateCallback(title, content, token, matches))
-                .catch(this._generateErrorCallback(title));
+                .catch(this._errorCallback.bind(this, title));
         } else {
             this._logger.debug('No supported providers to update');
             this._next();
@@ -220,7 +220,7 @@ class VWVCU {
         } while (res4);
         LINK_REGEX.lastIndex = 0;
         return [matches.map(m => new Promise(function(resolve, rej) {
-            this[`_${m.provider}`](m.link, resolve, rej);
+            this[`_${m.provider}`](m.link, resolve, rej, m.views);
         }.bind(this))), matches];
     }
     /**
@@ -228,8 +228,26 @@ class VWVCU {
      * @param {String} id Video ID
      * @param {Function} resolve Promise resolving function
      * @param {Function} reject Promise rejection function
+     * @param {number} views Currently registered page views
      */
-    _bb(id, resolve, reject) {
+    _bb(id, resolve, reject, views) {
+        let finalId = id;
+        if (id.startsWith('au')) {
+            // Audio page, ignore.
+            resolve(views);
+            return;
+        } else if (id.startsWith('av')) {
+            // Old "av{id}" format.
+            finalId = Number(id.substring(2));
+        } else if (!id.startsWith('BV')) {
+            // Not the new "BV{id}" format, so probably a number.
+            const num = Number(id);
+            if (isNaN(num)) {
+                finalId = num;
+            } else {
+                reject(`Unknown Bilibili ID format: ${id}`);
+            }
+        }
         http({
             headers: {
                 'User-Agent': USER_AGENT
@@ -237,7 +255,7 @@ class VWVCU {
             json: true,
             method: 'GET',
             qs: {
-                aid: id
+                [typeof finalId === 'number' ? 'aid' : 'bvid']: finalId
             },
             uri: 'https://api.bilibili.com/x/web-interface/archive/stat'
         }).then(function(d) {
@@ -313,7 +331,10 @@ class VWVCU {
             const parsed = htmlparser.parse(d, {script: true}),
                   scripts = parsed.querySelectorAll('script'),
                   content = scripts[scripts.length - 1].innerHTML,
-                  json = content.slice(content.indexOf('[{'), content.lastIndexOf('}]') + 2);
+                  json = content.slice(
+                      content.indexOf('[{'),
+                      content.lastIndexOf('}]') + 2
+                  );
             try {
                 resolve(JSON.parse(json)[5].data[0].playback_count);
             } catch (e) {
@@ -446,19 +467,31 @@ class VWVCU {
         }
     }
     /**
-     * Generates a callback function for when video view count fetching fails.
+     * Callback for when video view count fetching fails.
      * @param {String} title Page title
-     * @returns {Function} Callback function
+     * @param {Array} errors Errors that occurred
      * @private
      */
-    _generateErrorCallback(title) {
-        return function(...errors) {
+    async _errorCallback(title, ...errors) {
+        if (errors.some(
+            e => e &&
+                 e.message &&
+                 e.message.startsWith('Daily Limit Exceeded')
+        )) {
+            this._pages.unshift(title);
+            await fs.writeFile('list.txt', this._pages.join('\n'));
             this._logger.error(
-                'An error occurred while fetching view counts for', title,
+                'YouTube API daily quota exceeded. Restart the bot ' +
+                'after 1 day with `npm run list`'
+            );
+        } else {
+            this._logger.error(
+                'An error occurred while fetching view counts for',
+                title,
                 errors
             );
             this._next();
-        }.bind(this);
+        }
     }
     /**
      * Edits a page with specified title and content.
@@ -474,7 +507,7 @@ class VWVCU {
             this._next();
             return;
         }
-        util.apiQuery('edit', 'POST', {
+        util.apiQuery(this._domain, 'edit', 'POST', {
             bot: true,
             minor: true,
             summary: `Updating view count ([[User:${username}|automatic]])`,

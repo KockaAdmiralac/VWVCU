@@ -1,6 +1,6 @@
 {
     "name": "vwvcu",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Updates view counts on the Vocaloid Wiki",
     "keywords": [
         "wikia",
@@ -17,7 +17,8 @@
     "contributors": [],
     "main": "main.js",
     "scripts": {
-        "start": "node main.js"
+        "start": "node main.js",
+        "list": "node main.js --list"
     },
     "repository": {
         "type": "git",
