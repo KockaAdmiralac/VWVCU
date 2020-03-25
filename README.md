@@ -11,3 +11,6 @@ Run `npm start` from the repository's folder.
 
 ### Command-line options
 - `--no-edit`: Does not perform any edits and instead logs page content
+- `--domain=something.fandom.com`: Runs on `something.fandom.com` instead of `vocaloid.fandom.com`
+- `--list`: Reads pages from `list.txt` instead of listing all pages
+- `--no-bot`: Does not make edits with a bot flag
