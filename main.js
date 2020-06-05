@@ -475,8 +475,19 @@ class VWVCU {
     async _errorCallback(title, ...errors) {
         if (errors.some(
             e => e &&
-                 e.message &&
-                 e.message.startsWith('Daily Limit Exceeded')
+                 (
+                    (
+                        e.message &&
+                        (
+                            e.message.startsWith('Daily Limit Exceeded') ||
+                            e.message.includes('quota')
+                        )
+                    ) ||
+                    (
+                        e.response &&
+                        e.response.code === 403
+                    )
+                )
         )) {
             this._pages.unshift(title);
             await fs.writeFile('list.txt', this._pages.join('\n'));
