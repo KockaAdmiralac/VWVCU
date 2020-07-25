@@ -25,14 +25,14 @@
         "url": "https://github.com/KockaAdmiralac/VWVCU.git"
     },
     "dependencies": {
-        "googleapis": ">=43.0.0",
-        "google-auth-library": ">=5.2.2",
-        "node-html-parser": ">=1.2.13",
+        "googleapis": ">=56.0.0",
+        "google-auth-library": ">=6.0.5",
+        "node-html-parser": ">=1.2.20",
         "request": ">=2.88.2",
-        "request-promise-native": ">=1.0.8",
+        "request-promise-native": ">=1.0.9",
         "xml-parser": ">=1.2.1"
     },
     "devDependencies": {
-        "eslint": ">=6.8.0"
+        "eslint": ">=7.5.0"
     }
 }
