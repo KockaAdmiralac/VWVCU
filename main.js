@@ -336,7 +336,8 @@ class VWVCU {
                       content.lastIndexOf('}]') + 2
                   );
             try {
-                resolve(JSON.parse(json)[5].data[0].playback_count);
+                const parse = JSON.parse(json);
+                resolve(parse[parse.length - 1].data[0].playback_count);
             } catch (e) {
                 reject(`SoundCloud JSON parsing error: ${e.toString()}`);
             }
@@ -476,17 +477,14 @@ class VWVCU {
         if (errors.some(
             e => e &&
                  (
+                    e.message &&
                     (
-                        e.message &&
-                        (
-                            e.message.startsWith('Daily Limit Exceeded') ||
-                            e.message.includes('quota')
-                        )
+                        e.message.startsWith('Daily Limit Exceeded') ||
+                        e.message.includes('quota')
                     ) ||
-                    (
-                        e.response &&
-                        e.response.code === 403
-                    )
+                    e.response &&
+                    e.response.code === 403
+
                 )
         )) {
             this._pages.unshift(title);

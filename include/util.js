@@ -59,6 +59,10 @@ class Util {
      * @static
      */
     static commafy(num) {
+        if (isNaN(num)) {
+            // HACK: Fix 'undefined' view count errors.
+            return 'und,efi,ned';
+        }
         const str = String(num),
               l = str.length;
         let ret = '';
