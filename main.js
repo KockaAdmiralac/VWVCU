@@ -132,11 +132,12 @@ class VWVCU {
     _getPage(page) {
         return util.apiQuery(this._domain, 'query', 'GET', {
             indexpageids: 1,
-            intoken: 'edit',
-            prop: 'revisions|info',
+            meta: 'tokens',
+            prop: 'revisions',
             rvlimit: 1,
             rvprop: 'content',
-            titles: page
+            titles: page,
+            type: 'csrf'
         });
     }
     /**
@@ -156,6 +157,7 @@ class VWVCU {
         }
         const id = Number(data.query.pageids[0]),
               page = data.query.pages[id],
+              token = data.query.tokens.csrftoken,
               {title} = page;
         if (id === -1) {
             this._logger.error('Page does not exist:', title);
@@ -163,7 +165,6 @@ class VWVCU {
             return;
         }
         const content = page.revisions[0]['*'],
-              token = page.edittoken,
               [promises, matches] = this._extractContent(content);
         if (promises.length) {
             Promise.all(promises)

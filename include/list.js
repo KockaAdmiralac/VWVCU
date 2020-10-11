@@ -55,10 +55,8 @@ class Lister {
         } else {
             this._pages = this._pages
                 .concat(data.query.embeddedin.map(p => p.title));
-            if (data['query-continue']) {
-                return this._pageList(
-                    data['query-continue'].embeddedin.eicontinue
-                );
+            if (data.continue) {
+                return this._pageList(data.continue.eicontinue);
             }
             return this._pages;
         }
