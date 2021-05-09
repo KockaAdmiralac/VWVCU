@@ -216,7 +216,8 @@ class Auth {
         http({
             form: credentials,
             headers: {
-                'User-Agent': USER_AGENT
+                'User-Agent': USER_AGENT,
+                'X-Wikia-WikiaAppsID': 1234
             },
             jar: this._wikiaJar,
             method: 'POST',
