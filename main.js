@@ -25,7 +25,7 @@ const fs = require('fs').promises,
  */
 const USER_AGENT = 'Vocaloid Wiki View Count Updater',
       // eslint-disable-next-line max-len
-      USER_AGENT_SCRAPER = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.17 Safari/537.36',
+      USER_AGENT_SCRAPER = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36',
       VIEWS_REGEX = /\|\s*views\s*=\s*([^\n]+)\n/,
       LINKS_REGEX = /\|\s*links\s*=\s*([^\n]+)\n/,
       VIEW_REGEX = /\{\{v\|(\w{2})\|([^}]+)\}\}/g,
@@ -330,7 +330,7 @@ class VWVCU {
             uri: `https://soundcloud.com/${id}`
         }).then(function(d) {
             const parsed = htmlparser.parse(d, {script: true}),
-                  scripts = parsed.querySelectorAll('script'),
+                  scripts = parsed.querySelectorAll('script:not([src])'),
                   content = scripts[scripts.length - 1].innerHTML,
                   json = content.slice(
                       content.indexOf('[{'),
@@ -338,7 +338,12 @@ class VWVCU {
                   );
             try {
                 const parse = JSON.parse(json);
-                resolve(parse[parse.length - 1].data[0].playback_count);
+                resolve(
+                    parse
+                        .find(obj => obj.hydratable === 'sound')
+                        .data
+                        .playback_count
+                );
             } catch (e) {
                 reject(`SoundCloud JSON parsing error: ${e.toString()}`);
             }
