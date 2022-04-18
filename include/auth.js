@@ -217,11 +217,13 @@ class Auth {
             form: credentials,
             headers: {
                 'User-Agent': USER_AGENT,
+                'X-Fandom-Auth': 1,
                 'X-Wikia-WikiaAppsID': 1234
             },
             jar: this._wikiaJar,
             method: 'POST',
-            uri: 'https://services.fandom.com/auth/token'
+            // eslint-disable-next-line max-len
+            uri: 'https://services.fandom.com/mobile-fandom-app/fandom-auth/login'
         }).then(this._wikiaSuccess.bind(this))
         .catch(this._wikiaFail.bind(this));
     }
