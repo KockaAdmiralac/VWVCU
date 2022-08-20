@@ -1,6 +1,6 @@
 {
     "name": "vwvcu",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "description": "Updates view counts on the Vocaloid Wiki",
     "keywords": [
         "wikia",
@@ -25,14 +25,20 @@
         "url": "https://github.com/KockaAdmiralac/VWVCU.git"
     },
     "dependencies": {
-        "google-auth-library": ">=7.11.0",
-        "googleapis": ">=92.0.0",
-        "node-html-parser": ">=5.1.0",
-        "request": ">=2.88.2",
-        "request-promise-native": ">=1.0.9",
-        "xml-parser": ">=1.2.1"
+        "google-auth-library": "8.1.1",
+        "googleapis": "105.0.0",
+        "node-html-parser": "5.4.2-0",
+        "got": "11.x",
+        "tough-cookie": "4.0.0",
+        "xml-parser": "1.2.1"
     },
     "devDependencies": {
-        "eslint": ">=8.5.0"
+        "eslint": "8.21.0",
+        "eslint-plugin-jsdoc": "39.3.6",
+        "eslint-plugin-node": "11.1.0",
+        "eslint-plugin-promise": "6.0.0"
+    },
+    "engines": {
+        "node": "17.x"
     }
 }

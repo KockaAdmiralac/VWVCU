@@ -5,11 +5,9 @@
  */
 'use strict';
 
-/**
- * Importing modules.
- */
-const fs = require('fs').promises,
-      util = require('./util.js');
+const {CookieJar} = require('tough-cookie');
+const {readFile} = require('fs/promises');
+const {apiQuery} = require('./util.js');
 
 /**
  * Lists pages to update.
@@ -17,8 +15,10 @@ const fs = require('fs').promises,
 class Lister {
     /**
      * Class constructor.
-     * @param {string} domain Domain of the wiki whose pages we're listing
-     * @param {boolean} list Whether to use a list file instead of API
+     * @param {object} options Method options
+     * @param {string} options.domain Domain of the wiki whose pages we're
+     * listing
+     * @param {boolean} options.file Whether to use a list file instead of API
      */
     constructor({domain, file}) {
         this._domain = domain;
@@ -26,23 +26,24 @@ class Lister {
     }
     /**
      * Starts listing of pages.
-     * @param {http.CookieJar} jar Cookie jar for Fandom authentication
+     * @param {CookieJar} jar Fandom cookie jar
      * @returns {Promise} Promise to listen on for the list
      */
-    run() {
+    run(jar) {
         this._pages = [];
         if (this._file) {
             return this._fileList();
         }
-        return this._pageList();
+        return this._pageList(jar);
     }
     /**
      * Lists pages from a specified point.
-     * @param {String} eicontinue Value to pass to eicontinue parameter
+     * @param {CookieJar} jar Fandom cookie jar
+     * @param {string} eicontinue Value to pass to eicontinue parameter
      * @private
      */
-    async _pageList(eicontinue) {
-        const data = await util.apiQuery(this._domain, 'query', 'GET', {
+    async _pageList(jar, eicontinue) {
+        const data = await apiQuery(this._domain, jar, 'query', 'GET', {
             eicontinue,
             eifilterredir: 'nonredirects',
             eilimit: 'max',
@@ -53,10 +54,12 @@ class Lister {
         if (data.error) {
             throw new Error(`MediaWiki API error: ${JSON.stringify(data.error)}`);
         } else {
-            this._pages = this._pages
-                .concat(data.query.embeddedin.map(p => p.title));
+            this._pages = [
+                ...this._pages,
+                ...data.query.embeddedin.map(p => p.title)
+            ];
             if (data.continue) {
-                return this._pageList(data.continue.eicontinue);
+                return this._pageList(jar, data.continue.eicontinue);
             }
             return this._pages;
         }
@@ -66,7 +69,7 @@ class Lister {
      * @private
      */
     async _fileList() {
-        return (await fs.readFile('list.txt', {
+        return (await readFile('list.txt', {
             encoding: 'utf-8'
         })).trim().split('\n');
     }

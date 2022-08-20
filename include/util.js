@@ -5,75 +5,89 @@
  */
 'use strict';
 
-/**
- * Importing modules.
- */
-const http = require('request-promise-native');
+const http = require('got');
 
-/**
- * Constants
- */
 const USER_AGENT = 'Vocaloid Wiki View Count Updater';
 
 /**
- * Utility class.
+ * Queries the MediaWiki API.
+ * @param {string} domain Fandom wiki domain to query
+ * @param {http.CookieJar} jar Fandom cookie jar for authentication
+ * @param {string} action API action to execute
+ * @param {string} method HTTP method to use
+ * @param {object} params API request parameters
+ * @returns {Promise} Promise to listen on for response
+ * @static
  */
-class Util {
-    /**
-     * Sets the cookie jar for Fandom API queries.
-     * @param {http.CookieJar} jar Fandom cookie jar
-     * @static
-     */
-    static setJar(jar) {
-        this._jar = jar;
-    }
-    /**
-     * Queries the MediaWiki API.
-     * @param {string} domain Fandom wiki domain to query
-     * @param {String} action API action to execute
-     * @param {String} method HTTP method to use
-     * @param {Object} params API request parameters
-     * @returns {Promise} Promise to listen on for response
-     * @static
-     */
-    static apiQuery(domain, action, method, params) {
-        return http({
-            headers: {
-                'User-Agent': USER_AGENT
-            },
-            jar: this._jar,
-            json: true,
-            method,
-            uri: `https://${domain}/api.php`,
-            [method === 'POST' ? 'form' : 'qs']: Object.assign({
-                action,
-                cb: Date.now(),
-                format: 'json'
-            }, params)
-        });
-    }
-    /**
-     * Adds commas into a number, separating the groups of three digits.
-     * @param {Number} num Number to commafy
-     * @returns {String} Number with commas
-     * @static
-     */
-    static commafy(num) {
-        if (isNaN(num)) {
-            // HACK: Fix 'undefined' view count errors.
-            return 'und,efi,ned';
+function apiQuery(domain, jar, action, method, params) {
+    return http({
+        cookieJar: jar,
+        headers: {
+            'User-Agent': USER_AGENT
+        },
+        method,
+        url: `https://${domain}/api.php`,
+        [method === 'POST' ? 'form' : 'searchParams']: {
+            action,
+            cb: Date.now(),
+            format: 'json',
+            formatversion: 2,
+            ...params
         }
-        const str = String(num),
-              l = str.length;
-        let ret = '';
-        for (let i = 0; i < l; ++i) {
-            if (i !== 0 && i % 3 === 0) {
-                ret = `,${ret}`;
-            }
-            ret = str[str.length - i - 1] + ret;
+    }).json();
+}
+
+/**
+ * Adds commas into a number, separating the groups of three digits.
+ * @param {number} num Number to commafy
+ * @returns {string} Number with commas
+ * @static
+ */
+function commafy(num) {
+    if (isNaN(num)) {
+        // HACK: Fix 'undefined' view count errors.
+        return 'und,efi,ned';
+    }
+    const str = String(num);
+    const l = str.length;
+    let ret = '';
+    for (let i = 0; i < l; ++i) {
+        if (i !== 0 && i % 3 === 0) {
+            ret = `,${ret}`;
         }
-        return ret;
+        ret = str[str.length - i - 1] + ret;
+    }
+    return ret;
+}
+
+/**
+ * Replicates {{v}} template's number rounding.
+ * @param {number} num Number of views
+ * @returns {string} Rounded number of views
+ */
+function roundV(num) {
+    const len = String(num).length;
+    switch (len) {
+        case 1:
+            return String(num);
+        case 2:
+            return String(Math.round(num / 10) * 10);
+        case 3:
+            return `${String(num).slice(0, -1)}0`;
+        case 4:
+        case 5:
+        case 6:
+            return `${String(num).slice(0, -2)}00`;
+        case 7:
+        case 8:
+            return `${String(num).slice(0, -3)}000`;
+        default:
+            return 'unsupported';
     }
 }
 
-module.exports = Util;
+module.exports = {
+    apiQuery,
+    commafy,
+    roundV
+};

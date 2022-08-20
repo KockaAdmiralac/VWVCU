@@ -5,32 +5,29 @@
  */
 'use strict';
 
-/**
- * Importing modules.
- */
-const fs = require('fs').promises,
-      http = require('request-promise-native'),
-      xmlparser = require('xml-parser'),
-      htmlparser = require('node-html-parser'),
-      {google} = require('googleapis'),
-      Auth = require('./include/auth.js'),
-      Lister = require('./include/list.js'),
-      Logger = require('./include/log.js'),
-      util = require('./include/util.js'),
-      pkg = require('./package.json'),
-      {username} = require('./auth/wikia.json');
+const {writeFile} = require('fs/promises');
+const {argv, exit} = require('process');
+const http = require('got');
+const {CookieJar} = require('tough-cookie');
+const xmlparser = require('xml-parser');
+const {parse} = require('node-html-parser');
+const {google} = require('googleapis');
+const Auth = require('./include/auth.js');
+const Lister = require('./include/list.js');
+const Logger = require('./include/log.js');
+const {apiQuery, commafy, roundV} = require('./include/util.js');
+const pkg = require('./package.json');
+// eslint-disable-next-line node/no-unpublished-require
+const {username} = require('./auth/wikia.json');
 
-/**
- * Constants.
- */
-const USER_AGENT = 'Vocaloid Wiki View Count Updater',
-      // eslint-disable-next-line max-len
-      USER_AGENT_SCRAPER = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36',
-      VIEWS_REGEX = /\|\s*views\s*=\s*([^\n]+)\n/,
-      LINKS_REGEX = /\|\s*links\s*=\s*([^\n]+)\n/,
-      VIEW_REGEX = /\{\{v\|(\w{2})\|([^}]+)\}\}/g,
-      LINK_REGEX = /\{\{l\|(\w{2})\|([^}|]+)(?:\|([^}]+))?\}\}/g,
-      PIAPRO_REGEX = /<span>閲覧数：<\/span>([\d,]+)/;
+const USER_AGENT = 'Vocaloid Wiki View Count Updater';
+// eslint-disable-next-line max-len
+const USER_AGENT_SCRAPER = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.5112.79 Safari/537.36';
+const VIEWS_REGEX = /\|\s*views\s*=\s*([^\n]+)\n/u;
+const LINKS_REGEX = /\|\s*links\s*=\s*([^\n]+)\n/u;
+const VIEW_REGEX = /\{\{v\|(\w{2})\|([^}]+)\}\}/gu;
+const LINK_REGEX = /\{\{l\|(\w{2})\|([^}|]+)(?:\|([^}]+))?\}\}/gu;
+const PIAPRO_REGEX = /<span>閲覧数：<\/span>([\d,]+)/u;
 
 /**
  * Main class of the project.
@@ -40,12 +37,12 @@ class VWVCU {
      * Class constructor.
      */
     constructor() {
-        const domain = process.argv.find(arg => arg.startsWith('--domain='));
+        const domain = argv.find(arg => arg.startsWith('--domain='));
         this._domain = domain ? domain.substring(9) : 'vocaloid.fandom.com';
         this._auth = new Auth();
         this._lister = new Lister({
             domain: this._domain,
-            file: process.argv.includes('--list')
+            file: argv.includes('--list')
         });
         Logger.setup({
             dir: 'logs',
@@ -56,154 +53,177 @@ class VWVCU {
             name: 'main',
             stdout: true
         });
-        this._noBot = process.argv.includes('--no-bot');
-        this._noEdit = process.argv.includes('--no-edit');
+        this._noBot = argv.includes('--no-bot');
+        this._noEdit = argv.includes('--no-edit');
         this._logger.info(`${pkg.name} v${pkg.version}: Initializing`);
     }
     /**
      * Runs the Vocaloid Wiki View Count Updater.
      */
     async run() {
-        this._logger.info('Authenticating with services...');
+        let tokens = null;
+        let pages = null;
         try {
-            this._loggedIn(await this._auth.run());
-        } catch (errors) {
-            console.log(errors);
-            this._logger.error('Authentication failed:', ...errors);
-            this._auth.clean();
+            this._logger.info('Authenticating with services...');
+            tokens = await this._auth.run();
+        } catch (error) {
+            this._logger.error('Authentication error:', error);
+            return;
         }
-    }
-    /**
-     * Client is logged in.
-     * @param {Array<Array>} tokens Promise responses
-     * @private
-     */
-    _loggedIn(tokens) {
-        this._auth.clean();
-        this._tokens = {};
-        tokens.forEach(function([provider, result]) {
-            this._tokens[provider] = result;
-        }, this);
-        util.setJar(this._tokens.wikia);
-        this._logger.info('Authentication succeeded, listing pages...');
-        this._lister.run()
-            .then(this._onList.bind(this))
-            .catch(this._listFailed.bind(this));
-    }
-    /**
-     * List of pages has been obtained.
-     * @param {Array<String>} pages List of pages to run through
-     * @private
-     */
-    _onList(pages) {
-        this._pages = pages;
-        this._logger.info(pages.length, 'pages to process.');
-        this._next();
-    }
-    /**
-     * Pages failed to list.
-     * @param {Error} e Error that occurred
-     * @private
-     */
-    _listFailed(e) {
-        this._logger.error('Failed to obtain a list of pages', e);
-    }
-    /**
-     * Processes the next page in the queue.
-     * @private
-     */
-    _next() {
-        const page = this._pages.shift();
-        if (page) {
+        try {
+            this._logger.info('Authentication succeeded, listing pages...');
+            pages = await this._lister.run(tokens.wikia);
+            this._logger.info(pages.length, 'pages to process.');
+        } catch (error) {
+            this._logger.error('Failed to list pages:', error);
+            return;
+        }
+        while (pages.length > 0) {
+            const page = pages.shift();
             this._logger.debug('Processing', page, '...');
-            this._getPage(page)
-                .then(this._processPage.bind(this))
-                .catch(this._getFailed.bind(this));
-        } else {
-            this._logger.info('Finished!');
+            try {
+                await this.#processPage(page, pages, tokens);
+            } catch (error) {
+                this._logger.error('Failed to process page', page, error);
+            }
         }
+        this._logger.info('Finished!');
     }
     /**
      * Gets page contents and other important information.
-     * @param {String} page Page to fetch
+     * @param {string} page Page to fetch
+     * @param {CookieJar} jar Fandom cookie jar
      * @returns {Promise} Promise to listen on for response
      * @private
      */
-    _getPage(page) {
-        return util.apiQuery(this._domain, 'query', 'GET', {
+    #getPage(page, jar) {
+        return apiQuery(this._domain, jar, 'query', 'GET', {
             indexpageids: 1,
             meta: 'tokens',
             prop: 'revisions',
             rvlimit: 1,
             rvprop: 'content',
+            rvslots: 'main',
             titles: page,
             type: 'csrf'
         });
     }
     /**
-     * Processes page contents to extract important information
-     * and passes it on to services.
-     * @param {Object} data MediaWiki API response
+     * Processes views on one page by reading existing content, fetching
+     * new views and editing the page if needed.
+     * @param {string} page Page to process
+     * @param {string[]} pages Pages left to process
+     * @param {object} tokens Various authentication tokens
      * @private
      */
-    _processPage(data) {
-        if (data.error) {
-            this._logger.error(
-                'MediaWiki API error in fetching page contents',
-                data.error
-            );
-            this._next();
+    async #processPage(page, pages, tokens) {
+        const {error, query} = await this.#getPage(page, tokens.wikia);
+        if (error) {
+            this._logger.error('Error while fetching page contents', error);
             return;
         }
-        const id = Number(data.query.pageids[0]),
-              page = data.query.pages[id],
-              token = data.query.tokens.csrftoken,
-              {title} = page;
-        if (id === -1) {
+        const [{title, revisions, missing}] = query.pages;
+        const token = query.tokens.csrftoken;
+        if (missing) {
             this._logger.error('Page does not exist:', title);
-            this._next();
             return;
         }
-        const content = page.revisions[0]['*'],
-              [promises, matches] = this._extractContent(content);
-        if (promises.length) {
-            Promise.all(promises)
-                .then(this._generateCallback(title, content, token, matches))
-                .catch(this._errorCallback.bind(this, title));
-        } else {
+        const {content} = revisions[0].slots.main;
+        const matches = this.#extractContent(content);
+        if (matches.length === 0) {
             this._logger.debug('No supported providers to update');
-            this._next();
+            return;
+        }
+        let newContent = content;
+        for (const match of matches) {
+            newContent = await this.#processMatch(
+                page, pages, tokens, newContent, match
+            );
+        }
+        if (newContent === content) {
+            this._logger.debug('Nothing to change on', title);
+        } else {
+            await this.#doEdit(title, newContent, token, tokens.wikia);
         }
     }
     /**
-     * Callback after failing to obtain page contents.
-     * @param {Error} e Error that occurred while fetching page contents
-     * @private
+     * Processes one match of a supported provider's {{v}} template on the
+     * page and replaces the content with new content that has up to
+     * date views.
+     * @param {string} page Page to process
+     * @param {string[]} pages Pages left to process
+     * @param {object} tokens Various authentication tokens
+     * @param {string} content Old page content
+     * @param {object} match Match to process
+     * @param {string} match.link ID of the video
+     * @param {string} match.provider Video provider
+     * @param {number} match.views Current views written on the page
+     * @returns {string} New page content after replacement
      */
-    _getFailed(e) {
-        this._logger.error('An error occurred while fetching page contents', e);
-        this._next();
+    async #processMatch(page, pages, tokens, content, {link, provider, views}) {
+        try {
+            const count = await this[`_${provider}`](link, views, tokens);
+            if (roundV(views) === roundV(count)) {
+                this._logger.debug(
+                    'Not enough view count difference for',
+                    provider,
+                    'on',
+                    page
+                );
+                return content;
+            }
+            this._logger.debug('View count: old', views, 'new', count);
+            return content.replace(
+                `{{v|${provider}|${commafy(views)}}}`,
+                `{{v|${provider}|${commafy(count)}}}`
+            );
+        } catch (viewsError) {
+            if (
+                viewsError.message && (
+                    viewsError.message.startsWith('Daily Limit Exceeded') ||
+                    viewsError.message.includes('quota')
+                ) ||
+                viewsError.response &&
+                viewsError.response.code === 403
+            ) {
+                pages.unshift(page);
+                await writeFile('list.txt', pages.join('\n'));
+                this._logger.error(
+                    'YouTube API daily quota exceeded. Restart the bot ' +
+                    'after 1 day with `npm run list`'
+                );
+                exit(0);
+            } else {
+                this._logger.error(
+                    'Error while fetching view counts for',
+                    page,
+                    viewsError
+                );
+            }
+            return content;
+        }
     }
     /**
-     * Gets requests from video providers and view count based on page content.
-     * @param {String} content Page content
-     * @returns {Array} Promises to listen on for provider response and
-     *                  current view count
+     * Extracts current providers, video IDs and amount of views from page
+     * content.
+     * @param {string} content Page content
+     * @returns {object[]} Matches found in the current content
      * @private
      */
-    _extractContent(content) {
+    #extractContent(content) {
         if (!VIEWS_REGEX.exec(content) || !LINKS_REGEX.exec(content)) {
-            return [[], {}];
+            return [];
         }
-        const views = {},
-              matches = [];
-        let res3 = null, res4 = null;
+        const views = {};
+        const matches = [];
+        let res3 = null;
+        let res4 = null;
         do {
             res3 = VIEW_REGEX.exec(content);
             if (res3 && this[`_${res3[1]}`]) {
-                const provider = res3[1];
+                const [_, provider] = res3;
                 views[provider] = views[provider] || [];
-                views[provider].push(Number(res3[2].replace(/,|\.|\s/g, '')));
+                views[provider].push(Number(res3[2].replace(/,|\.|\s|\|.*/gu, '')));
             }
         } while (res3);
         VIEW_REGEX.lastIndex = 0;
@@ -220,23 +240,18 @@ class VWVCU {
             }
         } while (res4);
         LINK_REGEX.lastIndex = 0;
-        return [matches.map(m => new Promise(function(resolve, rej) {
-            this[`_${m.provider}`](m.link, resolve, rej, m.views);
-        }.bind(this))), matches];
+        return matches;
     }
     /**
      * Fetches bilibili video view count.
-     * @param {String} id Video ID
-     * @param {Function} resolve Promise resolving function
-     * @param {Function} reject Promise rejection function
+     * @param {string} id Video ID
      * @param {number} views Currently registered page views
      */
-    _bb(id, resolve, reject, views) {
+    async _bb(id, views) {
         let finalId = id;
         if (id.startsWith('au')) {
             // Audio page, ignore.
-            resolve(views);
-            return;
+            return views;
         } else if (id.startsWith('av')) {
             // Old "av{id}" format.
             finalId = Number(id.substring(2));
@@ -246,320 +261,171 @@ class VWVCU {
             if (isNaN(num)) {
                 finalId = num;
             } else {
-                reject(`Unknown Bilibili ID format: ${id}`);
+                throw new Error(`Unknown Bilibili ID format: ${id}`);
             }
         }
-        http({
-            headers: {
-                'User-Agent': USER_AGENT
-            },
-            json: true,
-            method: 'GET',
-            qs: {
-                [typeof finalId === 'number' ? 'aid' : 'bvid']: finalId
-            },
-            uri: 'https://api.bilibili.com/x/web-interface/archive/stat'
-        }).then(function(d) {
-            if (d && d.data && d.data.view) {
-                resolve(d.data.view);
-            } else {
-                reject(`No bilibili view count: ${JSON.stringify(d)}`);
+        const response = await http.get(
+            'https://api.bilibili.com/x/web-interface/archive/stat',
+            {
+                headers: {
+                    'User-Agent': USER_AGENT
+                },
+                searchParams: {
+                    [typeof finalId === 'number' ? 'aid' : 'bvid']: finalId
+                }
             }
-        }).catch(reject);
+        ).json();
+        if (response && response.data && response.data.view) {
+            return response.data.view;
+        }
+        throw new Error(`No bilibili view count: ${JSON.stringify(response)}`);
     }
     /**
      * Fetches Niconico video view count.
-     * @param {String} id Video ID
-     * @param {Function} resolve Promise resolving function
-     * @param {Function} reject Promise rejection function
+     * @param {string} id Video ID
      */
-    _nn(id, resolve, reject) {
-        http({
+    async _nn(id) {
+        const response = await http.get(`https://ext.nicovideo.jp/api/getthumbinfo/${id}`, {
             headers: {
                 'User-Agent': USER_AGENT
-            },
-            method: 'GET',
-            uri: `https://ext.nicovideo.jp/api/getthumbinfo/${id}`
-        }).then(function(d) {
-            const counter = xmlparser(d)
-                .root
-                .children[0]
-                .children
-                .find(c => c.name === 'view_counter');
-            if (!counter) {
-                reject(`[nn] unavailable video ${id}`);
-                return;
             }
-            resolve(Number(counter.content));
-        }).catch(reject);
+        }).text();
+        const counter = xmlparser(response)
+            .root
+            .children[0]
+            .children
+            .find(c => c.name === 'view_counter');
+        if (!counter) {
+            throw new Error(`[nn] unavailable video ${id}`);
+        }
+        return Number(counter.content);
     }
     /**
      * Fetches view count of a Piapro video.
-     * @param {String} id Video ID
-     * @param {Function} resolve Promise resolving function
-     * @param {Function} reject Promise rejection function
+     * @param {string} id Video ID
      */
-    _pp(id, resolve, reject) {
-        http({
+    async _pp(id) {
+        const response = await http.get(`https://piapro.jp/t/${id}`, {
             headers: {
                 'User-Agent': USER_AGENT_SCRAPER
-            },
-            method: 'GET',
-            uri: `https://piapro.jp/t/${id}`
-        }).then(function(d) {
-            const res = PIAPRO_REGEX.exec(d);
-            if (res) {
-                resolve(Number(res[1].replace(/,/g, '')));
-            } else {
-                reject('[piapro] Unable to find view count');
             }
-        }).catch(reject);
+        }).text();
+        const res = PIAPRO_REGEX.exec(response);
+        if (res) {
+            return Number(res[1].replace(/,/gu, ''));
+        }
+        throw new Error('[piapro] Unable to find view count');
     }
     /**
      * Fetches view count of a SoundCloud track.
-     * @param {String} id SoundCloud track ID
-     * @param {Function} resolve Promise resolving function
-     * @param {Function} reject Promise rejection function
+     * @param {string} id SoundCloud track ID
      */
-    _sc(id, resolve, reject) {
-        http({
-            headers: {
-                'User-Agent': USER_AGENT_SCRAPER
-            },
-            method: 'GET',
-            uri: `https://soundcloud.com/${id}`
-        }).then(function(d) {
-            const parsed = htmlparser.parse(d, {script: true}),
-                  scripts = parsed.querySelectorAll('script:not([src])'),
-                  content = scripts[scripts.length - 1].innerHTML,
-                  json = content.slice(
-                      content.indexOf('[{'),
-                      content.lastIndexOf('}]') + 2
-                  );
+    async _sc(id) {
+        try {
+            const response = await http.get(`https://soundcloud.com/${id}`, {
+                headers: {
+                    'User-Agent': USER_AGENT_SCRAPER
+                }
+            }).text();
+            const parsed = parse(response, {script: true});
+            const scripts = parsed.querySelectorAll('script:not([src])');
+            const content = scripts[scripts.length - 1].innerHTML;
+            const json = content.slice(
+                content.indexOf('[{'),
+                content.lastIndexOf('}]') + 2
+            );
             try {
-                const parse = JSON.parse(json);
-                resolve(
-                    parse
-                        .find(obj => obj.hydratable === 'sound')
-                        .data
-                        .playback_count
-                );
-            } catch (e) {
-                reject(`SoundCloud JSON parsing error: ${e.toString()}`);
+                const parsedJson = JSON.parse(json);
+                return parsedJson
+                    .find(obj => obj.hydratable === 'sound')
+                    .data
+                    .playback_count;
+            } catch (jsonError) {
+                throw new Error(`SoundCloud JSON parsing error: ${jsonError}`);
             }
-        }).catch(function(e) {
-            if (e && e.statusCode && e.statusCode === 404) {
-                reject(`[soundcloud] Not found: https://soundcloud.com/${id}`);
-            } else {
-                reject(e);
+        } catch (error) {
+            if (error && error.statusCode && error.statusCode === 404) {
+                throw new Error(`[soundcloud] Not found: https://soundcloud.com/${id}`);
             }
-        });
+            throw error;
+        }
     }
     /**
      * Fetches Vimeo video view count.
-     * @param {String} id Video ID
-     * @param {Function} resolve Promise resolving function
-     * @param {Function} reject Promise rejection function
+     * @param {string} id Video ID
+     * @param {number} views Currently registered page views
+     * @param {object} tokens Various authentication tokens
      */
-    _vm(id, resolve, reject) {
-        http({
+    async _vm(id, views, tokens) {
+        const response = await http.get(`https://api.vimeo.com/videos/${id}`, {
             headers: {
                 'Accept': 'application/vnd.vimeo.video+json;version=3.4',
-                'Authorization': `Bearer ${this._tokens.vimeo}`,
+                'Authorization': `Bearer ${tokens.vimeo}`,
                 'User-Agent': USER_AGENT
-            },
-            json: true,
-            method: 'GET',
-            uri: `https://api.vimeo.com/videos/${id}`
-        }).then(function(d) {
-            resolve(d.stats.plays);
-        }).catch(reject);
+            }
+        }).json();
+        return response.stats.plays;
     }
     /**
      * Fetches YouTube video view count.
-     * @param {String} id Video ID
-     * @param {Function} resolve Promise resolving function
-     * @param {Function} reject Promise rejection function
+     * @param {string} id Video ID
+     * @param {number} views Currently registered page views
+     * @param {object} tokens Various authentication tokens
      */
-    _yt(id, resolve, reject) {
+    async _yt(id, views, tokens) {
         const youtube = google.youtube('v3');
-        youtube.videos.list({
-            auth: this._tokens.google,
+        const response = await youtube.videos.list({
+            auth: tokens.google,
             id,
             part: 'statistics'
-        }, function(err, response) {
-            if (err) {
-                reject(err);
-                return;
-            }
-            if (
-                !response ||
-                !response.data ||
-                !(response.data.items instanceof Array)
-            ) {
-                reject('[youtube] Response data not valid');
-                return;
-            } else if (response.data.items.length === 0) {
-                reject(`[youtube] Video with ID ${id} not found`);
-                return;
-            }
-            resolve(Number(response.data.items[0].statistics.viewCount));
         });
-    }
-    /**
-     * Generates a callback function for when video fetching promises.
-     * are resolved
-     * @param {String} title Page title
-     * @param {String} content Page content
-     * @param {String} token User's edit token for the page
-     * @param {Object} matches Video information matches in page content
-     * @returns {Function} Callback function
-     * @private
-     */
-    _generateCallback(title, content, token, matches) {
-        return function(results) {
-            let newcontent = content;
-            if (!results.some(
-                (count, i) => this._roundV(matches[i].views) !==
-                              this._roundV(count)
-            )) {
-                this._logger.debug(
-                    title, ': Not enough view count difference, returning.'
-                );
-                this._next();
-                return;
-            }
-            results.forEach(function(count, i) {
-                const {provider, views} = matches[i];
-                this._logger.debug(
-                    'Old view count', views,
-                    ', new view count', count
-                );
-                newcontent = newcontent.replace(
-                    `{{v|${provider}|${util.commafy(views)}}}`,
-                    `{{v|${provider}|${util.commafy(count)}}}`
-                );
-            }, this);
-            if (newcontent === content) {
-                this._logger.debug('Nothing to change on', title);
-                this._next();
-            } else {
-                this._doEdit(title, newcontent, token);
-            }
-        }.bind(this);
-    }
-    /**
-     * Replicates {{v}} template's number rounding.
-     * @param {Number} num Number of views
-     * @returns {String} Rounded number of views
-     */
-    _roundV(num) {
-        const len = String(num).length;
-        switch (len) {
-            case 1:
-                return String(num);
-            case 2:
-                return String(Math.round(num / 10) * 10);
-            case 3:
-                return `${String(num).slice(0, -1)}0`;
-            case 4:
-            case 5:
-            case 6:
-                return `${String(num).slice(0, -2)}00`;
-            case 7:
-            case 8:
-                return `${String(num).slice(0, -3)}000`;
-            default:
-                return 'unsupported';
+        if (
+            !response ||
+            !response.data ||
+            !(response.data.items instanceof Array)
+        ) {
+            throw new Error('[youtube] Response data not valid');
+        } else if (response.data.items.length === 0) {
+            throw new Error(`[youtube] Video with ID ${id} not found`);
         }
-    }
-    /**
-     * Callback for when video view count fetching fails.
-     * @param {String} title Page title
-     * @param {Array} errors Errors that occurred
-     * @private
-     */
-    async _errorCallback(title, ...errors) {
-        if (errors.some(
-            e => e &&
-                 (
-                    e.message &&
-                    (
-                        e.message.startsWith('Daily Limit Exceeded') ||
-                        e.message.includes('quota')
-                    ) ||
-                    e.response &&
-                    e.response.code === 403
-
-                )
-        )) {
-            this._pages.unshift(title);
-            await fs.writeFile('list.txt', this._pages.join('\n'));
-            this._logger.error(
-                'YouTube API daily quota exceeded. Restart the bot ' +
-                'after 1 day with `npm run list`'
-            );
-        } else {
-            this._logger.error(
-                'An error occurred while fetching view counts for',
-                title,
-                errors
-            );
-            this._next();
-        }
+        return Number(response.data.items[0].statistics.viewCount);
     }
     /**
      * Edits a page with specified title and content.
-     * @param {String} title Page title
-     * @param {String} content Page content
-     * @param {String} token Token to use in edit
+     * @param {string} title Page title
+     * @param {string} content Page content
+     * @param {string} token Token to use in edit
+     * @param {CookieJar} jar Fandom cookie jar
      * @private
      */
-    _doEdit(title, content, token) {
+    async #doEdit(title, content, token, jar) {
         if (this._noEdit) {
             this._logger.debug('Content to post:');
             this._logger.debug(content);
-            this._next();
             return;
         }
-        util.apiQuery(this._domain, 'edit', 'POST', {
-            bot: true,
-            minor: true,
-            summary: `Updating view count ([[User:${username}|automatic]])`,
-            text: content,
-            title,
-            token
-        }).then(this._generateEditCallback(title))
-        .catch(this._generateEditErrorCallback(title));
-    }
-    /**
-     * Generates edit callback.
-     * @param {String} title Page title
-     * @returns {Function} Edit callback function
-     */
-    _generateEditCallback(title) {
-        return function(data) {
+        try {
+            const data = await apiQuery(this._domain, jar, 'edit', 'POST', {
+                bot: !this._noBot,
+                minor: true,
+                summary: `Updating view count ([[User:${username}|automatic]])`,
+                text: content,
+                title,
+                token
+            });
             if (data.error) {
                 this._logger.error(
-                    'MediaWiki API error while editing', title,
-                    ':', data.error
+                    'MediaWiki API error while editing',
+                    title,
+                    ':',
+                    data.error
                 );
             } else {
                 this._logger.debug('Finished editing', title);
             }
-            this._next();
-        }.bind(this);
-    }
-    /**
-     * Generated edit callback when the edit failed.
-     * @param {String} title Page title
-     * @returns {Function} Edit error callback function
-     */
-    _generateEditErrorCallback(title) {
-        return function(e) {
-            this._logger.error('An error occurred while editing', title, e);
-            this._next();
-        }.bind(this);
+        } catch (error) {
+            this._logger.error('An error occurred while editing', title, error);
+        }
     }
 }
 
