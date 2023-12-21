@@ -193,6 +193,12 @@ class VWVCU {
                     'after 1 day with `npm run list`'
                 );
                 exit(0);
+            } else if (viewsError.code === 'ERR_NON_2XX_3XX_RESPONSE') {
+                this._logger.error(
+                    'Error while fetching view counts for',
+                    page,
+                    viewsError.response
+                );
             } else {
                 this._logger.error(
                     'Error while fetching view counts for',
@@ -248,35 +254,26 @@ class VWVCU {
      * @param {number} views Currently registered page views
      */
     async _bb(id, views) {
-        let finalId = id;
         if (id.startsWith('au')) {
             // Audio page, ignore.
             return views;
-        } else if (id.startsWith('av')) {
-            // Old "av{id}" format.
-            finalId = Number(id.substring(2));
-        } else if (!id.startsWith('BV')) {
-            // Not the new "BV{id}" format, so probably a number.
-            const num = Number(id);
-            if (isNaN(num)) {
-                finalId = num;
-            } else {
-                throw new Error(`Unknown Bilibili ID format: ${id}`);
-            }
         }
         const response = await http.get(
-            'https://api.bilibili.com/x/web-interface/archive/stat',
+            `https://www.bilibili.com/video/${id}/`,
             {
                 headers: {
-                    'User-Agent': USER_AGENT
-                },
-                searchParams: {
-                    [typeof finalId === 'number' ? 'aid' : 'bvid']: finalId
+                    'User-Agent': USER_AGENT_SCRAPER
                 }
             }
-        ).json();
-        if (response && response.data && response.data.view) {
-            return response.data.view;
+        ).text();
+        const tree = parse(response, {script: true});
+        const script = tree.querySelector('script[type="application/ld+json"]');
+        if (!script) {
+            throw new Error(`Cannot find Bilibili LD-JSON data for ${id}!`);
+        }
+        const data = JSON.parse(script.innerHTML);
+        if (data.interactionStatistic?.userInteractionCount) {
+            return data.interactionStatistic.userInteractionCount;
         }
         throw new Error(`No bilibili view count: ${JSON.stringify(response)}`);
     }
